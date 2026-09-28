@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Foco con Teachable Machine</title>
+</head>
+<body>
+
+<img id="myImage" src="pic_bulboff.gif" width="100" height="180" alt="Foco apagado">
+
+<p id="lamp-status">Foco apagado</p>
+
+<div id="webcam-container"></div>
+<div id="label-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.7.4/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
+
+<script>
+const MODEL_URL = "./my_model/";
+const ON_CLASSES = ["Pulgar arriba", "Class 1"];
+const OFF_CLASSES = ["Pulgar abajo", "Class 2"];
+const IDLE_CLASSES = ["nada", "Nada", "Class 3"];
+const CONFIDENCE_THRESHOLD = 0.90;
+const FRAMES_TO_CONFIRM = 6;
+
+let model;
+let webcam;
+let maxPredictions = 0;
+let candidateClass = "";
+let candidateFrames = 0;
+let lampIsOn = false;
+
+const image = document.getElementById("myImage");
+const lampStatus = document.getElementById("lamp-status");
+const labelContainer = document.getElementById("label-container");
+
+function setLamp(isOn) {
+    lampIsOn = isOn;
+    image.src = isOn ? "pic_bulbon.gif" : "pic_bulboff.gif";
+    image.alt = isOn ? "Foco encendido" : "Foco apagado";
+    lampStatus.textContent = isOn ? "Foco encendido" : "Foco apagado";
+}
+
+function updateCandidate(className) {
+    if (className === candidateClass) {
+        candidateFrames++;
+    } else {
+        candidateClass = className;
+        candidateFrames = 1;
+    }
+}
+
+function applyStableClass(className) {
+    if (ON_CLASSES.includes(className) && !lampIsOn) {
+        setLamp(true);
+    }
+
+    if (OFF_CLASSES.includes(className) && lampIsOn) {
+        setLamp(false);
+    }
+
+    if (IDLE_CLASSES.includes(className)) {
+        setLamp(false);
+    }
+}
+
+async function init() {
+    try {
+        setLamp(false);
+
+        const modelURL = MODEL_URL + "model.json";
+        const metadataURL = MODEL_URL + "metadata.json";
+
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
+
+        webcam = new tmImage.Webcam(224, 224, true);
+        await webcam.setup();
+        await webcam.play();
+        document.getElementById("webcam-container").appendChild(webcam.canvas);
+
+        for (let i = 0; i < maxPredictions; i++) {
+            labelContainer.appendChild(document.createElement("div"));
+        }
+
+        window.requestAnimationFrame(loop);
+    } catch (error) {
+        console.error(error);
+        lampStatus.textContent = "No se pudo iniciar la camara o cargar el modelo.";
+    }
+}
+
+async function loop() {
+    webcam.update();
+    await predict();
+    window.requestAnimationFrame(loop);
+}
+
+async function predict() {
+    const prediction = await model.predict(webcam.canvas);
+    let bestClass = "";
+    let bestProbability = 0;
+
+    for (let i = 0; i < maxPredictions; i++) {
+        const className = prediction[i].className;
+        const probability = prediction[i].probability;
+
+        labelContainer.childNodes[i].innerHTML =
+            className + ": " + probability.toFixed(2);
+
+        if (probability > bestProbability) {
+            bestProbability = probability;
+            bestClass = className;
+        }
+    }
+
+    if (bestProbability < CONFIDENCE_THRESHOLD) {
+        candidateClass = "";
+        candidateFrames = 0;
+        return;
+    }
+
+    updateCandidate(bestClass);
+
+    if (candidateFrames >= FRAMES_TO_CONFIRM) {
+        applyStableClass(bestClass);
+    }
+}
+
+init();
+</script>
+
+</body>
+</html>

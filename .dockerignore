@@ -1,0 +1,5 @@
+training_images
+*.exe
+*.zip
+.git
+.gitignore
